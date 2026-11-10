@@ -1,0 +1,79 @@
+
+name: Build Release APK
+
+on:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Android Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 37
+        run: |
+          sdkmanager "platforms;android-37"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Verify Firebase configuration
+        run: |
+          test -f app/google-services.json || {
+            echo "::error::Firebase configuration is missing."
+            exit 1
+          }
+
+      - name: Build Release APK
+        run: |
+          ./gradlew \
+            --no-daemon \
+            --stacktrace \
+            :app:assembleRelease
+
+      - name: Verify APK
+        run: |
+          APK=$(find app/build/outputs/apk/release \
+            -maxdepth 1 -type f -name "*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "::error::Release APK was not generated."
+            exit 1
+          fi
+
+          echo "APK generated successfully: $APK"
+          ls -lh "$APK"
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ExpenseManager-Release-APK
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
